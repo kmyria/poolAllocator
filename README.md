@@ -51,7 +51,7 @@ The significant performance gain is achieved by avoiding expensive system calls 
 1.  Clone the repository:
     ```bash
     git clone https://github.com/kmyria/poolAllocator.git
-    cd poolAllocator/
+    cd poolAllocator/customAllocator/
     ```
 
 2.  Configure the project with CMake, building in `Release` mode to enable optimisations.
