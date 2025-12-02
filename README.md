@@ -43,7 +43,7 @@ The significant performance gain is achieved by avoiding expensive system calls 
 ### Prerequisites
 
 *   **CMake** (version 3.15 or newer)
-*   A **C++17 compliant compiler** (e.g., GCC, Clang, MSVC)
+*   A **C++23 compliant compiler** (e.g., GCC, Clang, MSVC)
 *   **Google Benchmark Library** (must be installed in a location findable by CMake)
 
 ### Build Steps
