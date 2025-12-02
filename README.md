@@ -75,6 +75,8 @@ To run the benchmark, execute the following command:
 ./build/benchmark
 ```
 
+Remember to disable CPU frequency scaling for the most acccurate results.
+
 ### Future direction
 
 The next phase of development will focus on adding support for concurrent environments.
