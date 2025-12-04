@@ -15,7 +15,6 @@ endif()
 
 # Create executable
 add_executable(benchmark
-    custAlloc/custAlloc.cpp
     benchmark.cpp
 )
 

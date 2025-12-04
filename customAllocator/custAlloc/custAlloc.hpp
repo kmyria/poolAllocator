@@ -6,6 +6,9 @@
 #include <cassert>
 #include <cstddef>
 #include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <mutex>
 #include <new>
 
 
@@ -38,8 +41,41 @@ public:
     PoolAllocator(const PoolAllocator&) = delete;
     PoolAllocator& operator=(const PoolAllocator&) = delete;
 
-    PoolAllocator(const PoolAllocator&&) = delete;
-    PoolAllocator& operator=(const PoolAllocator&&) = delete;
+    PoolAllocator(PoolAllocator&& other) noexcept :
+        object_size(other.object_size),
+        pool_size(other.pool_size),
+        block_size(other.block_size),
+        total_size(other.total_size),
+        memory_pool(other.memory_pool),
+        free_list_head(other.free_list_head),
+        allocated_blocks_count(other.allocated_blocks_count),
+        peak_usage_count(other.peak_usage_count)
+
+    {
+        other.memory_pool = nullptr;
+        other.free_list_head = nullptr;
+        other.allocated_blocks_count = 0;
+    }
+
+    PoolAllocator& operator=(PoolAllocator&& other) noexcept {
+        if (this != &other) {
+            ::operator delete(memory_pool);
+
+            object_size = other.object_size;
+            pool_size = other.pool_size;
+            block_size = other.block_size;
+            total_size = other.total_size;
+            memory_pool = other.memory_pool;
+            free_list_head = other.free_list_head;
+            allocated_blocks_count = other.allocated_blocks_count;
+            peak_usage_count = other.peak_usage_count;
+
+            other.memory_pool = nullptr;
+            other.free_list_head = nullptr;
+            other.allocated_blocks_count = 0;
+        }
+        return *this;
+    }
 
     ~PoolAllocator() {
         assert(allocated_blocks_count == 0);
