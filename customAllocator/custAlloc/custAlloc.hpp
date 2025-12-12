@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdlib>
+#include <mutex>
 #include <new>
 
 // Tracking statistics incurred too much overhead, so
@@ -89,6 +90,8 @@ public:
 
     inline void* allocate_object()
     {
+        std::scoped_lock lock(m_mutex);
+
         if (!free_list_head) [[unlikely]] {
             return nullptr;
         }
@@ -107,6 +110,8 @@ public:
 
     inline void deallocate_object(void* ptr)
     {
+        std::scoped_lock lock(m_mutex);
+
         if (ptr) {
 
             if constexpr (StatTrak) {
@@ -121,6 +126,8 @@ public:
 
     AllocatorStats get_allocator_stats()
     {
+        std::scoped_lock lock(m_mutex);
+
         return AllocatorStats { .total_blocks = pool_size,
             .allocated_blocks = allocated_blocks_count,
             .peak_usage = peak_usage_count,
@@ -150,7 +157,9 @@ private:
             return false;
         if (block < memory_pool || block >= (char*)memory_pool + total_size)
             return false;
-        if ((static_cast<char*>(block) - static_cast<char*>(memory_pool)) % block_size != 0)
+        if ((static_cast<char*>(block) - static_cast<char*>(memory_pool))
+                % block_size
+            != 0)
             return false;
 
         return true;
@@ -167,5 +176,7 @@ private:
 
     size_t allocated_blocks_count;
     size_t peak_usage_count;
+
+    mutable std::mutex m_mutex;
 };
 #endif // CUSTOM_ALLOC_HPP
