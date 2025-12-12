@@ -14,29 +14,7 @@ The core focus is pure speed, achieved by eliminating operating system overhead 
 
 ## Performance Benchmark
 
-The primary goal of this allocator is speed. The following benchmarks were run on my Intel Core i7-9700K. It compares the performance of `PoolAllocator` against standard `new`/`delete` across several realistic usage patterns.
-
-```
-Run on (8 X 3991.96 MHz CPU s)
-CPU Caches:
-  L1 Data 32 KiB (x4)
-  L1 Instruction 32 KiB (x4)
-  L2 Unified 256 KiB (x4)
-  L3 Unified 8192 KiB (x1)
-Load Average: 0.58, 1.15, 1.37
-
-| Benchmark                 |      Time |       CPU | Iterations |   Speedup |
-| --------------------------|-----------|-----------|----------- |---------- |
-| BM_PoolAllocator_Single   |  0.772 ns |  0.771 ns |  888035416 |    ~13.3x |
-| BM_NewDelete_Single       |   10.3 ns |   10.3 ns |   67890432 |      1.0x |
-| BM_PoolAllocator_Bulk     |  19364 ns |  19416 ns |      35814 |     ~9.0x |
-| BM_NewDelete_Bulk         | 175021 ns | 174821 ns |       4029 |      1.0x |
-| BM_PoolAllocator_Churn    |    165 ns |    165 ns |    4231547 |     ~9.2x |
-| BM_NewDelete_Churn        |   1526 ns |   1523 ns |     465199 |      1.0x |
-```
-
-
-The significant performance gain is achieved by avoiding expensive system calls and instead using simple pointer manipulation on a pre-allocated memory pool.
+Read about the benchmark analysis and design choices [here](docs/BENCHMARK.md).
 
 ## Building and Running
 
