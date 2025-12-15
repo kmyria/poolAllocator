@@ -9,10 +9,16 @@
 #include <cstdlib>
 #include <mutex>
 #include <new>
+#include <type_traits>
 
+struct NopMutex {
+    void lock() { }
+    void unlock() { }
+    bool try_lock() { return true; }
+};
 // Tracking statistics incurred too much overhead, so
 // it's turned off right now.
-template <bool StatTrak = false>
+template <bool ThreadSafe = false, bool StatTrak = false>
 
 class PoolAllocator {
 public:
@@ -177,6 +183,7 @@ private:
     size_t allocated_blocks_count;
     size_t peak_usage_count;
 
-    mutable std::mutex m_mutex;
+    using MutexType = std::conditional_t<ThreadSafe, std::mutex, NopMutex>;
+    [[no_unique_address]] mutable MutexType m_mutex;
 };
 #endif // CUSTOM_ALLOC_HPP

@@ -1,3 +1,9 @@
+#ifdef BM_THREAD_SAFE
+constexpr bool THREAD_SAFE = true;
+#else
+constexpr bool THREAD_SAFE = false;
+#endif
+
 #include <benchmark/benchmark.h>
 #include <vector>
 
@@ -13,8 +19,9 @@ constexpr size_t POOL_SIZE = 10000;
 
 // SCENARIO 1: HIGH FREQUENCY ALLOCATION & DEALLOCATION (BEST CASE)
 
-static void BM_PoolAllocator_Single(benchmark::State& state) {
-    PoolAllocator<false> allocator(sizeof(obj), POOL_SIZE);
+static void BM_PoolAllocator_Single(benchmark::State& state)
+{
+    PoolAllocator<THREAD_SAFE, false> allocator(sizeof(obj), POOL_SIZE);
 
     for (auto _ : state) {
         void* p = allocator.allocate_object();
@@ -24,7 +31,8 @@ static void BM_PoolAllocator_Single(benchmark::State& state) {
 }
 BENCHMARK(BM_PoolAllocator_Single);
 
-static void BM_NewDelete_Single(benchmark::State& state) {
+static void BM_NewDelete_Single(benchmark::State& state)
+{
     for (auto _ : state) {
         obj* p = new obj();
         benchmark::DoNotOptimize(p);
@@ -35,8 +43,9 @@ BENCHMARK(BM_NewDelete_Single);
 
 // SCENARIO 2: BULK ALLOCATION & DEALLOCATION
 
-static void BM_PoolAllocator_Bulk(benchmark::State& state) {
-    PoolAllocator<false> allocator(sizeof(obj), POOL_SIZE);
+static void BM_PoolAllocator_Bulk(benchmark::State& state)
+{
+    PoolAllocator<THREAD_SAFE, false> allocator(sizeof(obj), POOL_SIZE);
     std::vector<void*> objects;
     objects.reserve(POOL_SIZE);
 
@@ -57,7 +66,8 @@ static void BM_PoolAllocator_Bulk(benchmark::State& state) {
 }
 BENCHMARK(BM_PoolAllocator_Bulk);
 
-static void BM_NewDelete_Bulk(benchmark::State& state) {
+static void BM_NewDelete_Bulk(benchmark::State& state)
+{
     std::vector<obj*> objects;
     objects.reserve(POOL_SIZE);
 
@@ -79,8 +89,9 @@ BENCHMARK(BM_NewDelete_Bulk);
 
 // SCENARIO 3: MEMORY CHURN (REALISTIC WORKLOAD)
 
-static void BM_PoolAllocator_Churn(benchmark::State& state) {
-    PoolAllocator<false> allocator(sizeof(obj), POOL_SIZE);
+static void BM_PoolAllocator_Churn(benchmark::State& state)
+{
+    PoolAllocator<THREAD_SAFE, false> allocator(sizeof(obj), POOL_SIZE);
     std::vector<void*> objects;
     objects.reserve(POOL_SIZE);
 
@@ -100,7 +111,8 @@ static void BM_PoolAllocator_Churn(benchmark::State& state) {
 }
 BENCHMARK(BM_PoolAllocator_Churn);
 
-static void BM_NewDelete_Churn(benchmark::State& state) {
+static void BM_NewDelete_Churn(benchmark::State& state)
+{
     std::vector<obj*> objects;
     objects.reserve(POOL_SIZE);
 
@@ -120,4 +132,3 @@ static void BM_NewDelete_Churn(benchmark::State& state) {
 BENCHMARK(BM_NewDelete_Churn);
 
 BENCHMARK_MAIN();
-

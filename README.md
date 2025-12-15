@@ -32,9 +32,9 @@ Read about the benchmark analysis and design choices [here](docs/BENCHMARK.md).
     cd poolAllocator/customAllocator/
     ```
 
-2.  Configure the project with CMake, building in `Release` mode to enable optimisations.
+2.  Configure the project with CMake, building in `Release` mode to enable optimisations. You also have the option to turn OFF thread safety, but by default it will be ON.
     ```bash
-    cmake -B build -DCMAKE_BUILD_TYPE=Release
+    cmake --fresh -B build -DCMAKE_BUILD_TYPE=Release -DTS=ON
     ```
 
 3.  Compile the code:
@@ -59,6 +59,6 @@ Remember to disable CPU frequency scaling for the most acccurate results.
 
 The next phase of development will focus on adding support for concurrent environments.
 
-*   Implementing thread safety
-*   Benchmark concurrency
+*   ~~Implementing thread safety~~
+*   ~~Benchmark concurrency~~
 *   More advanced designs

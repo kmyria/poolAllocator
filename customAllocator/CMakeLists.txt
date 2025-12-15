@@ -13,6 +13,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -O3")
 endif()
 
+option(TS "Enable thread safety" ON)
+if (TS)
+    add_compile_definitions(BM_THREAD_SAFE)
+endif()
+
 # Create executable
 add_executable(benchmark
     benchmark.cpp
@@ -30,3 +35,4 @@ target_compile_features(benchmark PRIVATE cxx_std_23)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(benchmark PRIVATE DEBUG)
 endif()
+
