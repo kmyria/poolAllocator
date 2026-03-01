@@ -1,13 +1,7 @@
-#ifdef BM_THREAD_SAFE
-constexpr bool THREAD_SAFE = true;
-#else
-constexpr bool THREAD_SAFE = false;
-#endif
-
-#include <benchmark/benchmark.h>
-#include <vector>
-
 #include "custAlloc/custAlloc.hpp"
+#include <atomic>
+#include <benchmark/benchmark.h>
+#include <cstddef>
 
 struct obj {
     long long data1;
@@ -17,18 +11,41 @@ struct obj {
 
 constexpr size_t POOL_SIZE = 10000;
 
+class PoolAllocFixture : public benchmark::Fixture {
+public:
+    static inline PoolAllocator* alloc = nullptr;
+
+    void SetUp(const ::benchmark::State& state) override
+    {
+        if (state.thread_index() == 0) {
+            const size_t threads = state.threads();
+            const size_t POOL_SIZE = 100'000 * threads;
+            alloc = new PoolAllocator(sizeof(obj), POOL_SIZE);
+        }
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+    }
+
+    void TearDown(const ::benchmark::State& state) override
+    {
+        if (state.thread_index() == 0) {
+            delete alloc;
+            alloc = nullptr;
+        }
+    }
+};
+
 // SCENARIO 1: HIGH FREQUENCY ALLOCATION & DEALLOCATION (BEST CASE)
 
 static void BM_PoolAllocator_Single(benchmark::State& state)
 {
-    PoolAllocator<THREAD_SAFE, false> allocator(sizeof(obj), POOL_SIZE);
-
+    static PoolAllocator* alloc = new PoolAllocator(sizeof(obj), POOL_SIZE);
     for (auto _ : state) {
-        void* p = allocator.allocate_object();
+        void* p = alloc->allocate_object();
         benchmark::DoNotOptimize(p);
-        allocator.deallocate_object(p);
+        alloc->deallocate_object(p);
     }
 }
+
 BENCHMARK(BM_PoolAllocator_Single);
 
 static void BM_NewDelete_Single(benchmark::State& state)
@@ -45,7 +62,7 @@ BENCHMARK(BM_NewDelete_Single);
 
 static void BM_PoolAllocator_Bulk(benchmark::State& state)
 {
-    PoolAllocator<THREAD_SAFE, false> allocator(sizeof(obj), POOL_SIZE);
+    PoolAllocator allocator(sizeof(obj), POOL_SIZE);
     std::vector<void*> objects;
     objects.reserve(POOL_SIZE);
 
@@ -91,7 +108,7 @@ BENCHMARK(BM_NewDelete_Bulk);
 
 static void BM_PoolAllocator_Churn(benchmark::State& state)
 {
-    PoolAllocator<THREAD_SAFE, false> allocator(sizeof(obj), POOL_SIZE);
+    PoolAllocator allocator(sizeof(obj), POOL_SIZE);
     std::vector<void*> objects;
     objects.reserve(POOL_SIZE);
 
@@ -123,11 +140,18 @@ static void BM_NewDelete_Churn(benchmark::State& state)
     for (auto _ : state) {
         for (size_t i = 0; i < 100; ++i) {
             delete objects[i];
+            objects[i] = nullptr;
         }
         for (size_t i = 0; i < 100; ++i) {
             objects[i] = new obj();
         }
     }
+
+    state.PauseTiming();
+    for (auto* p : objects) {
+        delete p;
+    }
+    objects.clear();
 }
 BENCHMARK(BM_NewDelete_Churn);
 

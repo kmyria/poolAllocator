@@ -3,6 +3,7 @@ project(CustomAllocator LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(benchmark CONFIG REQUIRED)
 
@@ -10,12 +11,7 @@ find_package(benchmark CONFIG REQUIRED)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # Technically should not be compiling with -03 here
     # That is done by building with release mode
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -O3")
-endif()
-
-option(TS "Enable thread safety" ON)
-if (TS)
-    add_compile_definitions(BM_THREAD_SAFE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -fsanitize=address,undefined")
 endif()
 
 # Create executable

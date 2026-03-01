@@ -4,140 +4,86 @@
 #define CUSTOM_ALLOC_HPP
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
-#include <mutex>
 #include <new>
-#include <type_traits>
-
-struct NopMutex {
-    void lock() { }
-    void unlock() { }
-    bool try_lock() { return true; }
-};
-// Tracking statistics incurred too much overhead, so
-// it's turned off right now.
-template <bool ThreadSafe = false, bool StatTrak = false>
 
 class PoolAllocator {
 public:
-    struct AllocatorStats {
-        size_t total_blocks;
-        size_t allocated_blocks;
-        size_t peak_usage;
-        int fragmentation_metric;
-    };
-
     PoolAllocator(size_t object_size, size_t pool_size)
-        : object_size(object_size)
-        , pool_size(pool_size)
-        , allocated_blocks_count(0)
-        , peak_usage_count(0)
     {
         size_t req_size = std::max(sizeof(FreeNode*), object_size);
-        size_t alignment = alignof(FreeNode*);
+        const size_t alignment = 64;
         block_size = (req_size + alignment - 1) & ~(alignment - 1);
 
         total_size = block_size * pool_size;
+        memory_pool = ::operator new(total_size, std::align_val_t(64));
+        assert(reinterpret_cast<std::uintptr_t>(memory_pool) % 64 == 0);
+        FreeNode* first = static_cast<FreeNode*>(memory_pool);
+        FreeNode* current = first;
+        for (size_t i = 0; i < pool_size - 1; ++i) {
+            current->next = (FreeNode*)((char*)current + block_size);
+            current = current->next;
+        }
+        current->next = nullptr;
 
-        allocated_blocks_count = 0;
-        peak_usage_count = 0;
-
-        memory_pool = ::operator new(total_size);
-        create_free_list();
+        free_list_head_.store(pack(first, 0), std::memory_order_release);
     }
 
     PoolAllocator(const PoolAllocator&) = delete;
     PoolAllocator& operator=(const PoolAllocator&) = delete;
-
-    PoolAllocator(PoolAllocator&& other) noexcept
-        : object_size(other.object_size)
-        , pool_size(other.pool_size)
-        , block_size(other.block_size)
-        , total_size(other.total_size)
-        , memory_pool(other.memory_pool)
-        , free_list_head(other.free_list_head)
-        , allocated_blocks_count(other.allocated_blocks_count)
-        , peak_usage_count(other.peak_usage_count)
-
-    {
-        other.memory_pool = nullptr;
-        other.free_list_head = nullptr;
-        other.allocated_blocks_count = 0;
-    }
-
-    PoolAllocator& operator=(PoolAllocator&& other) noexcept
-    {
-        if (this != &other) {
-            ::operator delete(memory_pool);
-
-            object_size = other.object_size;
-            pool_size = other.pool_size;
-            block_size = other.block_size;
-            total_size = other.total_size;
-            memory_pool = other.memory_pool;
-            free_list_head = other.free_list_head;
-            allocated_blocks_count = other.allocated_blocks_count;
-            peak_usage_count = other.peak_usage_count;
-
-            other.memory_pool = nullptr;
-            other.free_list_head = nullptr;
-            other.allocated_blocks_count = 0;
-        }
-        return *this;
-    }
+    PoolAllocator(PoolAllocator&&) = delete;
+    PoolAllocator& operator=(PoolAllocator&&) = delete;
 
     ~PoolAllocator()
     {
-        assert(allocated_blocks_count == 0);
-        ::operator delete(memory_pool);
+        if (TL.owner == this) {
+            TL.cache_head = nullptr;
+            TL.cache_count = 0;
+            TL.owner = nullptr;
+        }
+        ::operator delete(memory_pool, total_size, std::align_val_t(64));
     }
 
     inline void* allocate_object()
     {
-        std::scoped_lock lock(m_mutex);
-
-        if (!free_list_head) [[unlikely]] {
-            return nullptr;
+        if (TL.owner != this) {
+            TL.cache_head = nullptr;
+            TL.cache_count = 0;
+            TL.owner = this;
         }
 
-        if constexpr (StatTrak) {
-            allocated_blocks_count++;
-            if (allocated_blocks_count > peak_usage_count) [[unlikely]] {
-                peak_usage_count = allocated_blocks_count;
-            }
+        if (TL.cache_head) {
+            return TL_pop();
         }
 
-        FreeNode* head = free_list_head;
-        free_list_head = free_list_head->next;
-        return (void*)head;
+        refill_local();
+
+        if (TL.cache_head) {
+            return TL_pop();
+        }
+
+        return nullptr;
     }
 
     inline void deallocate_object(void* ptr)
     {
-        std::scoped_lock lock(m_mutex);
-
-        if (ptr) {
-
-            if constexpr (StatTrak) {
-                allocated_blocks_count--;
-            }
-
-            FreeNode* newHead = (FreeNode*)ptr;
-            newHead->next = free_list_head;
-            free_list_head = newHead;
+        if (TL.owner != this) {
+            TL.cache_head = nullptr;
+            TL.cache_count = 0;
+            TL.owner = this;
         }
-    }
 
-    AllocatorStats get_allocator_stats()
-    {
-        std::scoped_lock lock(m_mutex);
+        if (!ptr)
+            return;
 
-        return AllocatorStats { .total_blocks = pool_size,
-            .allocated_blocks = allocated_blocks_count,
-            .peak_usage = peak_usage_count,
-            .fragmentation_metric = 0 };
+        TL_push(ptr);
+
+        if (TL.cache_count >= TL_CAP)
+            spill_local(TL_SPILL);
     }
 
 private:
@@ -145,45 +91,137 @@ private:
         FreeNode* next;
     };
 
-    void create_free_list()
-    {
-        free_list_head = (FreeNode*)memory_pool;
-        FreeNode* current = free_list_head;
-        for (size_t i = 0; i < pool_size - 1; ++i) {
-            current->next = (FreeNode*)((char*)current + block_size);
-            current = current->next;
+    struct HeadView {
+        uintptr_t packed;
+        FreeNode* ptr() const
+        {
+            return reinterpret_cast<FreeNode*>(packed & PTR_MASK);
         }
-        current->next = nullptr;
+        std::uint64_t tag() const { return (packed & TAG_MASK); }
+
+        // FreeNode* ptr;
+        // std::uint64_t tag;
+        // packed = (ptr & PTR_MASK) | (tag & TAG_MASK)
+    };
+
+    uintptr_t pack(FreeNode* ptr, std::uint64_t tag)
+    {
+        return (reinterpret_cast<uintptr_t>(ptr) & PTR_MASK) | (tag & TAG_MASK);
     }
 
-    // utility (currently unused)
-    bool validate_block_pointer(void* block)
+    static constexpr uintptr_t TAG_BITS = 6;
+    static constexpr uintptr_t TAG_MASK
+        = (std::uintptr_t { 1 } << TAG_BITS) - 1;
+    static constexpr uintptr_t PTR_MASK = ~TAG_MASK;
+
+    alignas(std::hardware_constructive_interference_size)
+        std::atomic<uintptr_t> free_list_head_;
+
+    struct ThreadLocalState {
+        FreeNode* cache_head = nullptr;
+        size_t cache_count = 0;
+        PoolAllocator* owner = nullptr;
+    };
+
+    static thread_local ThreadLocalState TL;
+
+    static constexpr size_t TL_CAP = 96;
+    static constexpr size_t TL_REFILL = 32;
+    static constexpr size_t TL_SPILL = 32;
+    static constexpr size_t TL_TARGET = 64;
+
+    FreeNode* TL_pop()
     {
-        if (block == nullptr)
+        FreeNode* n = TL.cache_head;
+        TL.cache_head = n->next;
+        --TL.cache_count;
+        return n;
+    }
+
+    bool TL_push(void* ptr)
+    {
+        if (!ptr)
             return false;
-        if (block < memory_pool || block >= (char*)memory_pool + total_size)
-            return false;
-        if ((static_cast<char*>(block) - static_cast<char*>(memory_pool))
-                % block_size
-            != 0)
-            return false;
+
+        FreeNode* n = static_cast<FreeNode*>(ptr);
+        n->next = TL.cache_head;
+        TL.cache_head = n;
+        ++TL.cache_count;
 
         return true;
     }
 
-    void* memory_pool;
-    FreeNode* free_list_head;
+    FreeNode* global_pop_single()
+    {
+        uintptr_t old_packed = free_list_head_.load(std::memory_order_acquire);
 
-    size_t object_size;
-    size_t pool_size;
+        HeadView old_head;
+        uintptr_t new_packed;
+        do {
+            old_head = { old_packed };
+            if (!old_head.ptr())
+                return nullptr;
+            new_packed = pack(old_head.ptr()->next, old_head.tag() + 1);
+
+        } while (!free_list_head_.compare_exchange_weak(old_packed, new_packed,
+            std::memory_order_acquire, std::memory_order_acquire));
+
+        return old_head.ptr();
+    }
+
+    void global_push_batch(void* start, void* end)
+    {
+        if (!start || !end)
+            return;
+
+        FreeNode* batch_head = static_cast<FreeNode*>(start);
+        FreeNode* batch_tail = static_cast<FreeNode*>(end);
+
+        uintptr_t old_packed = free_list_head_.load(std::memory_order_relaxed);
+        uintptr_t new_packed;
+
+        HeadView old_head;
+
+        do {
+            old_head = { old_packed };
+            batch_tail->next = old_head.ptr();
+            new_packed = pack(batch_head, old_head.tag() + 1);
+
+        } while (!free_list_head_.compare_exchange_weak(old_packed, new_packed,
+            std::memory_order_release, std::memory_order_relaxed));
+    }
+
+    void refill_local()
+    {
+        while (TL.cache_count < TL_TARGET && TL_push(global_pop_single()))
+            ;
+    }
+
+    void spill_local(size_t count)
+    {
+        count = std::min(count, TL.cache_count);
+
+        if (count == 0)
+            return;
+
+        FreeNode* head = TL.cache_head;
+        FreeNode* tail = head;
+        for (size_t i = 1; i < count; i++) {
+            tail = tail->next;
+        }
+
+        TL.cache_head = tail->next;
+        TL.cache_count -= count;
+
+        global_push_batch(head, tail);
+    }
+
+    void* memory_pool;
 
     size_t block_size;
     size_t total_size;
-
-    size_t allocated_blocks_count;
-    size_t peak_usage_count;
-
-    using MutexType = std::conditional_t<ThreadSafe, std::mutex, NopMutex>;
-    [[no_unique_address]] mutable MutexType m_mutex;
 };
+
+inline thread_local PoolAllocator::ThreadLocalState PoolAllocator::TL;
+
 #endif // CUSTOM_ALLOC_HPP
