@@ -11,7 +11,7 @@ find_package(benchmark CONFIG REQUIRED)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # Technically should not be compiling with -03 here
     # That is done by building with release mode
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -fsanitize=address,undefined")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -O3")
 endif()
 
 # Create executable

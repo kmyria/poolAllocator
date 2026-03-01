@@ -1,7 +1,6 @@
 #include "custAlloc/custAlloc.hpp"
-#include <atomic>
 #include <benchmark/benchmark.h>
-#include <cstddef>
+#include <vector>
 
 struct obj {
     long long data1;
@@ -11,80 +10,81 @@ struct obj {
 
 constexpr size_t POOL_SIZE = 10000;
 
-class PoolAllocFixture : public benchmark::Fixture {
+class AllocatorFixture : public benchmark::Fixture {
 public:
-    static inline PoolAllocator* alloc = nullptr;
+    static PoolAllocator* shared_alloc;
+    static int setup_count;
+    static std::mutex init_mutex;
 
-    void SetUp(const ::benchmark::State& state) override
-    {
-        if (state.thread_index() == 0) {
-            const size_t threads = state.threads();
-            const size_t POOL_SIZE = 100'000 * threads;
-            alloc = new PoolAllocator(sizeof(obj), POOL_SIZE);
+    void SetUp(const benchmark::State& state) override {
+        std::lock_guard<std::mutex> lock(init_mutex);
+        
+        if (setup_count == 0) {
+            size_t total_capacity = (POOL_SIZE * state.threads()) + (state.threads() * 1000);
+            shared_alloc = new PoolAllocator(sizeof(obj), total_capacity);
         }
-        std::atomic_thread_fence(std::memory_order_seq_cst);
+        setup_count++;
     }
 
-    void TearDown(const ::benchmark::State& state) override
-    {
-        if (state.thread_index() == 0) {
-            delete alloc;
-            alloc = nullptr;
+    void TearDown(const benchmark::State& state) override {
+        std::lock_guard<std::mutex> lock(init_mutex);
+        setup_count--;
+        
+        if (setup_count == 0) {
+            delete shared_alloc;
+            shared_alloc = nullptr;
         }
     }
 };
 
+PoolAllocator* AllocatorFixture::shared_alloc = nullptr;
+int AllocatorFixture::setup_count = 0;
+std::mutex AllocatorFixture::init_mutex;
+
+
 // SCENARIO 1: HIGH FREQUENCY ALLOCATION & DEALLOCATION (BEST CASE)
 
-static void BM_PoolAllocator_Single(benchmark::State& state)
-{
-    static PoolAllocator* alloc = new PoolAllocator(sizeof(obj), POOL_SIZE);
+BENCHMARK_DEFINE_F(AllocatorFixture, Pool_Single)(benchmark::State& state) {
     for (auto _ : state) {
-        void* p = alloc->allocate_object();
+        void* p = shared_alloc->allocate_object();
         benchmark::DoNotOptimize(p);
-        alloc->deallocate_object(p);
+        shared_alloc->deallocate_object(p);
     }
 }
+BENCHMARK_REGISTER_F(AllocatorFixture, Pool_Single)->ThreadRange(1, 8);
 
-BENCHMARK(BM_PoolAllocator_Single);
-
-static void BM_NewDelete_Single(benchmark::State& state)
-{
+static void BM_NewDelete_Single(benchmark::State& state) {
     for (auto _ : state) {
         obj* p = new obj();
         benchmark::DoNotOptimize(p);
         delete p;
     }
 }
-BENCHMARK(BM_NewDelete_Single);
+BENCHMARK(BM_NewDelete_Single)->ThreadRange(1, 8);
 
 // SCENARIO 2: BULK ALLOCATION & DEALLOCATION
 
-static void BM_PoolAllocator_Bulk(benchmark::State& state)
-{
-    PoolAllocator allocator(sizeof(obj), POOL_SIZE);
+BENCHMARK_DEFINE_F(AllocatorFixture, Pool_Bulk)(benchmark::State& state) {
     std::vector<void*> objects;
     objects.reserve(POOL_SIZE);
 
     for (auto _ : state) {
         for (size_t i = 0; i < POOL_SIZE; ++i) {
-            objects.push_back(allocator.allocate_object());
+            objects.push_back(shared_alloc->allocate_object());
         }
 
         for (void* p : objects) {
-            allocator.deallocate_object(p);
+            shared_alloc->deallocate_object(p);
         }
 
-        // Ensure that cleanup work isn't included in the result.
         state.PauseTiming();
         objects.clear();
         state.ResumeTiming();
     }
 }
-BENCHMARK(BM_PoolAllocator_Bulk);
+BENCHMARK_REGISTER_F(AllocatorFixture, Pool_Bulk)->ThreadRange(1, 8);
 
-static void BM_NewDelete_Bulk(benchmark::State& state)
-{
+static void BM_NewDelete_Bulk(benchmark::State& state) {
     std::vector<obj*> objects;
     objects.reserve(POOL_SIZE);
 
@@ -102,34 +102,30 @@ static void BM_NewDelete_Bulk(benchmark::State& state)
         state.ResumeTiming();
     }
 }
-BENCHMARK(BM_NewDelete_Bulk);
+BENCHMARK(BM_NewDelete_Bulk)->ThreadRange(1, 8);
 
 // SCENARIO 3: MEMORY CHURN (REALISTIC WORKLOAD)
 
-static void BM_PoolAllocator_Churn(benchmark::State& state)
-{
-    PoolAllocator allocator(sizeof(obj), POOL_SIZE);
+BENCHMARK_DEFINE_F(AllocatorFixture, Pool_Churn)(benchmark::State& state) {
     std::vector<void*> objects;
     objects.reserve(POOL_SIZE);
 
-    // Pre-fill the allocator to about 50% capacity to simulate a steady state.
     for (size_t i = 0; i < POOL_SIZE / 2; ++i) {
-        objects.push_back(allocator.allocate_object());
+        objects.push_back(shared_alloc->allocate_object());
     }
 
     for (auto _ : state) {
         for (size_t i = 0; i < 100; ++i) {
-            allocator.deallocate_object(objects[i]);
+            shared_alloc->deallocate_object(objects[i]);
         }
         for (size_t i = 0; i < 100; ++i) {
-            objects[i] = allocator.allocate_object();
+            objects[i] = shared_alloc->allocate_object();
         }
     }
 }
-BENCHMARK(BM_PoolAllocator_Churn);
+BENCHMARK_REGISTER_F(AllocatorFixture, Pool_Churn)->ThreadRange(1, 8);
 
-static void BM_NewDelete_Churn(benchmark::State& state)
-{
+static void BM_NewDelete_Churn(benchmark::State& state) {
     std::vector<obj*> objects;
     objects.reserve(POOL_SIZE);
 
@@ -140,19 +136,12 @@ static void BM_NewDelete_Churn(benchmark::State& state)
     for (auto _ : state) {
         for (size_t i = 0; i < 100; ++i) {
             delete objects[i];
-            objects[i] = nullptr;
         }
         for (size_t i = 0; i < 100; ++i) {
             objects[i] = new obj();
         }
     }
-
-    state.PauseTiming();
-    for (auto* p : objects) {
-        delete p;
-    }
-    objects.clear();
 }
-BENCHMARK(BM_NewDelete_Churn);
+BENCHMARK(BM_NewDelete_Churn)->ThreadRange(1, 8);
 
 BENCHMARK_MAIN();

@@ -13,7 +13,7 @@
 
 class PoolAllocator {
 public:
-    PoolAllocator(size_t object_size, size_t pool_size)
+    PoolAllocator(size_t object_size, size_t pool_size) : pool_id(++id_gen)
     {
         size_t req_size = std::max(sizeof(FreeNode*), object_size);
         const size_t alignment = 64;
@@ -40,20 +40,20 @@ public:
 
     ~PoolAllocator()
     {
-        if (TL.owner == this) {
+        if (TL.owner == this->pool_id) {
             TL.cache_head = nullptr;
             TL.cache_count = 0;
-            TL.owner = nullptr;
+            TL.owner = 0;
         }
         ::operator delete(memory_pool, total_size, std::align_val_t(64));
     }
 
     inline void* allocate_object()
     {
-        if (TL.owner != this) {
+        if (TL.owner != this->pool_id) {
             TL.cache_head = nullptr;
             TL.cache_count = 0;
-            TL.owner = this;
+            TL.owner = this->pool_id;
         }
 
         if (TL.cache_head) {
@@ -71,10 +71,10 @@ public:
 
     inline void deallocate_object(void* ptr)
     {
-        if (TL.owner != this) {
+        if (TL.owner != this->pool_id) {
             TL.cache_head = nullptr;
             TL.cache_count = 0;
-            TL.owner = this;
+            TL.owner = this->pool_id;
         }
 
         if (!ptr)
@@ -97,7 +97,7 @@ private:
         {
             return reinterpret_cast<FreeNode*>(packed & PTR_MASK);
         }
-        std::uint64_t tag() const { return (packed & TAG_MASK); }
+        std::uint64_t tag() const { return (packed >> PTR_BITS); }
 
         // FreeNode* ptr;
         // std::uint64_t tag;
@@ -106,13 +106,13 @@ private:
 
     uintptr_t pack(FreeNode* ptr, std::uint64_t tag)
     {
-        return (reinterpret_cast<uintptr_t>(ptr) & PTR_MASK) | (tag & TAG_MASK);
+        return (reinterpret_cast<uintptr_t>(ptr) & PTR_MASK) | ((tag << PTR_BITS) & TAG_MASK);
     }
 
-    static constexpr uintptr_t TAG_BITS = 6;
-    static constexpr uintptr_t TAG_MASK
-        = (std::uintptr_t { 1 } << TAG_BITS) - 1;
-    static constexpr uintptr_t PTR_MASK = ~TAG_MASK;
+    static constexpr uintptr_t PTR_BITS = 48;
+    static constexpr uintptr_t PTR_MASK
+        = (std::uintptr_t { 1 } << PTR_BITS) - 1;
+    static constexpr uintptr_t TAG_MASK = ~PTR_MASK;
 
     alignas(std::hardware_constructive_interference_size)
         std::atomic<uintptr_t> free_list_head_;
@@ -120,7 +120,7 @@ private:
     struct ThreadLocalState {
         FreeNode* cache_head = nullptr;
         size_t cache_count = 0;
-        PoolAllocator* owner = nullptr;
+        uint64_t owner = 0;
     };
 
     static thread_local ThreadLocalState TL;
@@ -220,6 +220,8 @@ private:
 
     size_t block_size;
     size_t total_size;
+    inline static std::atomic<uint64_t> id_gen{0};
+    const uint64_t pool_id;
 };
 
 inline thread_local PoolAllocator::ThreadLocalState PoolAllocator::TL;

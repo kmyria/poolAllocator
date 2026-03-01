@@ -7,9 +7,10 @@ The core focus is pure speed, achieved by eliminating operating system overhead 
 ### Key Features
 
 *   **Fast:** Up to **13x faster** than standard `new`/`delete` in high-frequency allocation scenarios.
+*   **Lock-Free Concurrency:** Replaces expensive OS-level mutex locks (`std::mutex`) with a highly optimized `std::atomic` Compare-And-Swap (CAS) global free-list. Uses packed tagged pointers to prevent ABA problem.
+*   **Thread-Local Caching (TLS):** Mitigates hardware cache-line contention by providing each thread with a private, lock-free local cache, amortizing the cost of global atomic operations via batching.
 *   **Modern C++:** Built with C++17/20 features for compile time optimisations.
-*   **Performance-Aware Design:** Optional, compile time statistics tracking to ensure zero overhead in release builds.
-*   **Professionally Benchmarked:** Performance is proven with a comprehensive suite of tests using Google Benchmark.
+*   **Professionally Benchmarked:** Performance and concurrency scaling is proven with a comprehensive suite of tests using Google Benchmark.
 *   **Standard Build System:** Uses CMake for convenient, cross platform building and integration.
 
 ## Performance Benchmark
@@ -20,11 +21,11 @@ Read about the benchmark analysis and design choices [here](docs/BENCHMARK.md).
 
 ### Prerequisites
 
-*   **CMake** (version 3.15 or newer)
-*   A **C++23 compliant compiler** (e.g. gcc, clang, msvc)
-*   **Google Benchmark Library** (must be installed in a location findable by CMake)
+*   **CMake** (3.15+)
+*   **C++23 compliant compiler**
+*   **Google Benchmark Library**
 
-### Build Steps
+### Build
 
 1.  Clone the repository:
     ```bash
@@ -32,15 +33,11 @@ Read about the benchmark analysis and design choices [here](docs/BENCHMARK.md).
     cd poolAllocator/customAllocator/
     ```
 
-2.  Configure the project with CMake, building in `Release` mode to enable optimisations. You also have the option to turn OFF thread safety, but by default it will be ON.
+2.  Compile and build:
     ```bash
-    cmake --fresh -B build -DCMAKE_BUILD_TYPE=Release -DTS=ON
+    cmake --fresh -B build && cmake --build build
     ```
 
-3.  Compile the code:
-    ```bash
-    cmake --build build
-    ```
 
 ### Running the executable
 
@@ -52,13 +49,5 @@ To run the benchmark, execute the following command:
 ```bash
 ./build/benchmark
 ```
-
 Remember to disable CPU frequency scaling for the most acccurate results.
 
-### Future direction
-
-The next phase of development will focus on adding support for concurrent environments.
-
-*   ~~Implementing thread safety~~
-*   ~~Benchmark concurrency~~
-*   More advanced designs
