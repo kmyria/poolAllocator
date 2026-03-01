@@ -125,10 +125,10 @@ private:
 
     static thread_local ThreadLocalState TL;
 
-    static constexpr size_t TL_CAP = 96;
-    static constexpr size_t TL_REFILL = 32;
-    static constexpr size_t TL_SPILL = 32;
-    static constexpr size_t TL_TARGET = 64;
+    static constexpr size_t TL_CAP = 15000;
+    static constexpr size_t TL_REFILL = 5000;
+    static constexpr size_t TL_SPILL = 5000;
+    static constexpr size_t TL_TARGET = 10000;
 
     FreeNode* TL_pop()
     {

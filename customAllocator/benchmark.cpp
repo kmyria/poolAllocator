@@ -77,9 +77,7 @@ BENCHMARK_DEFINE_F(AllocatorFixture, Pool_Bulk)(benchmark::State& state) {
             shared_alloc->deallocate_object(p);
         }
 
-        state.PauseTiming();
         objects.clear();
-        state.ResumeTiming();
     }
 }
 BENCHMARK_REGISTER_F(AllocatorFixture, Pool_Bulk)->ThreadRange(1, 8);
@@ -97,9 +95,7 @@ static void BM_NewDelete_Bulk(benchmark::State& state) {
             delete p;
         }
 
-        state.PauseTiming();
         objects.clear();
-        state.ResumeTiming();
     }
 }
 BENCHMARK(BM_NewDelete_Bulk)->ThreadRange(1, 8);
