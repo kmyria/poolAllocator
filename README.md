@@ -6,7 +6,7 @@ The core focus is pure speed, achieved by eliminating operating system overhead 
 
 ### Performance Benchmark
 
-[Read about the benchmark analysis and design choices] (docs/BENCHMARK.md).
+[Read about the benchmark analysis and design choices](docs/BENCHMARK.md).
 
 ### Key Features
 
