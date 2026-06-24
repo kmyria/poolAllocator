@@ -19,7 +19,7 @@ The core focus is pure speed, achieved by eliminating operating system overhead 
 
 ## Building and Running
 
-### Prerequisites
+### Dependencies
 
 *   **CMake** (3.15+)
 *   **C++23 compliant compiler**
