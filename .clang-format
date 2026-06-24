@@ -1,5 +1,5 @@
 BasedOnStyle: WebKit
-IndentWidth: 4
-ColumnLimit: 80
+IndentWidth: 8
+ColumnLimit: 100
 BreakConstructorInitializers: BeforeComma
 ConstructorInitializerAllOnOneLineOrOnePerLine: true
